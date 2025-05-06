@@ -1,4 +1,5 @@
 #include "1-naive.cuh"
+#include "2-global-memory-coalescing.cuh"
 
 #include <iostream>
 
@@ -32,18 +33,24 @@ void run_kernel(int kernel_id) {
   cudaMemcpy(d_B, h_M, PROBLEM_MATRIX_SIZE_BYTES, cudaMemcpyHostToDevice);
 
   // Now we can run our kernels
-  dim3 blockDim(16, 16);
-  dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, 16), CEIL_DIV(PROBLEM_SIZE, 16));
-
   cudaEvent_t start_event, stop_event;
   cudaEventCreate(&start_event);
   cudaEventCreate(&stop_event);
   cudaEventRecord(start_event, 0);
 
   switch (kernel_id) {
-    case 0:
+    case 1: {
+      dim3 blockDim(32, 32);
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, 32), CEIL_DIV(PROBLEM_SIZE, 32));
       gemm_naive<<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
       break;
+    }
+    case 2: {
+      dim3 blockDim(32, 32);
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, 32), CEIL_DIV(PROBLEM_SIZE, 32));
+      gemm_global_memory_coalescing<<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
     default:
       throw std::runtime_error("Unexpected kernel_id");
   }
@@ -61,7 +68,7 @@ void run_kernel(int kernel_id) {
 
   float elapsed = 0.f;
   cudaEventElapsedTime(&elapsed, start_event, stop_event);
-  std::cout << "Kernel ran for " << elapsed << " ms";
+  std::cout << "Kernel ran for " << elapsed << " ms" << std::endl;
 
   // Free all the memory
   cudaFree(d_A);
@@ -72,5 +79,6 @@ void run_kernel(int kernel_id) {
 }
 
 int main() {
-  run_kernel(0);
+  run_kernel(1);
+  run_kernel(2);
 } 
