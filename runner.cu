@@ -1,5 +1,6 @@
 #include "1-naive.cuh"
 #include "2-global-memory-coalescing.cuh"
+#include "3-shared-memory-blocking.cuh"
 
 #include <iostream>
 
@@ -51,6 +52,12 @@ void run_kernel(int kernel_id) {
       gemm_global_memory_coalescing<<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
       break;
     }
+    case 3: {
+      dim3 blockDim(32, 32);
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, 32), CEIL_DIV(PROBLEM_SIZE, 32));
+      gemm_shared_memory_blocking<32><<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
     default:
       throw std::runtime_error("Unexpected kernel_id");
   }
@@ -65,6 +72,7 @@ void run_kernel(int kernel_id) {
   std::cout << "h_C[0]=" << h_C[0] << std::endl;
   std::cout << "h_C[1]=" << h_C[1] << std::endl;
   std::cout << "h_C[2]=" << h_C[2] << std::endl;
+  std::cout << "h_C[last]=" << h_C[PROBLEM_MATRIX_SIZE - 1] << std::endl;
 
   float elapsed = 0.f;
   cudaEventElapsedTime(&elapsed, start_event, stop_event);
@@ -81,4 +89,5 @@ void run_kernel(int kernel_id) {
 int main() {
   run_kernel(1);
   run_kernel(2);
+  run_kernel(3);
 } 
