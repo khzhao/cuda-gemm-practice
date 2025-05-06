@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cuda_runtime.h>
 
 // On a high level, we want consecutive threadIds to access consecutive memory addresses

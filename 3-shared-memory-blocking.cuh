@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cuda_runtime.h>
 
 // In this kernel we take advantage of the shared memory that's built into the chip, 

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cuda_runtime.h>
 
 // This is not good for global memory coalescing because the last index which is
