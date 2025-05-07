@@ -1,2 +1,2 @@
 all:
-	nvcc runner.cu -o runner
+	nvcc -std=c++17 runner.cu -o runner

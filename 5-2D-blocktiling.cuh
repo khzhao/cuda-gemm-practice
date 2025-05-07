@@ -34,7 +34,8 @@ __global__ void gemm_2D_blocktiling(int M, int K, int N, float* A, float* B, flo
 
   // Now we need to do the actual computations
   for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
-    // Populate the shared memory caches
+    // Populate the shared memory caches, this can be improved by writing
+    // the global memory accesses in a coalesced fashion for each thread
     auto BATCH_N_PARTS = BK / NDIV;
     for (int i = 0; i < TM; ++i) {
       for (int j = 0; j < BATCH_N_PARTS; ++j) {
