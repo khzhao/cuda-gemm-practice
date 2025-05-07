@@ -2,6 +2,7 @@
 #include "2-global-memory-coalescing.cuh"
 #include "3-shared-memory-blocking.cuh"
 #include "4-1D-blocktiling.cuh"
+#include "5-2D-blocktiling.cuh"
 
 #include <iostream>
 
@@ -69,6 +70,18 @@ void run_kernel(int kernel_id) {
       gemm_1D_blocktiling<BM, BK, BN, TM><<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
       break;
     }
+    case 5: {
+      const int BM = 128;
+      const int BN = 128;
+      const int BK = 16;
+      const int TM = 8;
+      const int TN = 8;
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, BN), CEIL_DIV(PROBLEM_SIZE, BM));
+      dim3 blockDim((BM * BN) / (TM * TN));
+      gemm_2D_blocktiling<BM, BK, BN, TM, TN>
+        <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
     default:
       throw std::runtime_error("Unexpected kernel_id");
   }
@@ -108,4 +121,5 @@ int main() {
   run_kernel(2);
   run_kernel(3);
   run_kernel(4);
+  run_kernel(5);
 } 
