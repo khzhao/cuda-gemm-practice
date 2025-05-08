@@ -3,76 +3,93 @@
 #include <cuda_runtime.h>
 
 #include <cassert>
-#include <stdio.h>
 
-template <int BM, int BK, int BN, int TM, int TN>
-__global__ void gemm_2D_blocktiling(int M, int K, int N, float* A, float* B, float* C) {
+template <const int BM, const int BK, const int BN, const int TM, const int TN>
+__global__ void __launch_bounds__((BM * BN) / (TM * TN), 1)
+    gemm_2D_blocktiling(int M, int K, int N, float *A, float *B, float *C) {
+  const uint cRow = blockIdx.y;
+  const uint cCol = blockIdx.x;
+
+  const uint totalResultsBlocktile = BM * BN;
+  // A thread is responsible for calculating TM*TN elements in the blocktile
+  const uint numThreadsBlocktile = totalResultsBlocktile / (TM * TN);
+
+  // ResultsPerBlock / ResultsPerThread == ThreadsPerBlock
+  assert(numThreadsBlocktile == blockDim.x);
+
+  // BN/TN are the number of threads to span a column
+  const int threadCol = threadIdx.x % (BN / TN);
+  const int threadRow = threadIdx.x / (BN / TN);
+
+  // allocate space for the current blocktile in smem
   __shared__ float As[BM * BK];
   __shared__ float Bs[BK * BN];
 
-  const auto cCol = blockIdx.x * BN;
-  const auto cRow = blockIdx.y * BM;
+  // Move blocktile to beginning of A's row and B's column
+  A += cRow * BM * K;
+  B += cCol * BN;
+  C += cRow * BM * N + cCol * BN;
 
-  // Advance the pointers so that we are on the correct batch
-  A += cRow * K;
-  B += cCol;
-  C += cRow * N + cCol;
+  // calculating the indices that this thread will load into SMEM
+  const uint innerRowA = threadIdx.x / BK;
+  const uint innerColA = threadIdx.x % BK;
+  // calculates the number of rows of As that are being loaded in a single step
+  // by a single block
+  const uint strideA = numThreadsBlocktile / BK;
+  const uint innerRowB = threadIdx.x / BN;
+  const uint innerColB = threadIdx.x % BN;
+  // for both As and Bs we want each load to span the full column-width, for
+  // better GMEM coalescing (as opposed to spanning full row-width and iterating
+  // across columns)
+  const uint strideB = numThreadsBlocktile / BN;
 
-  // Ok now we need to do the following, we are assigning (threadRow, threadCol)
-  // per 2D batch in the outputs
-  const auto MDIV = BM / TM;
-  const auto NDIV = BN / TN; 
-  assert(MDIV * NDIV == blockDim.x);
-  assert(BK % NDIV == 0);
+  // allocate thread-local cache for results in registerfile
+  float threadResults[TM * TN] = {0.0};
+  // register caches for As and Bs
+  float regM[TM] = {0.0};
+  float regN[TN] = {0.0};
 
-  // There should be MDIV * NDIV total number of threads
-  const auto threadCol = threadIdx.x % NDIV;
-  const auto threadRow = threadIdx.x / NDIV;
-
-  // Larger thread-local cache
-  float cachedValues[TM * TN] = {0.f};
-
-  // Now we need to do the actual computations
-  for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
-    // Populate the shared memory caches, this can be improved by writing
-    // the global memory accesses in a coalesced fashion for each thread
-    auto BATCH_N_PARTS = BK / NDIV;
-    for (int i = 0; i < TM; ++i) {
-      for (int j = 0; j < BATCH_N_PARTS; ++j) {
-        As[(threadRow * TM + i) * BK + threadCol * BATCH_N_PARTS + j] = 
-          A[(threadRow * TM + i) * K + threadCol * BATCH_N_PARTS + j];
-      }
+  // outer-most loop over block tiles
+  for (uint bkIdx = 0; bkIdx < K; bkIdx += BK) {
+    // populate the SMEM caches
+    for (uint loadOffset = 0; loadOffset < BM; loadOffset += strideA) {
+      As[(innerRowA + loadOffset) * BK + innerColA] =
+          A[(innerRowA + loadOffset) * K + innerColA];
     }
-    auto BATCH_M_PARTS = BK / MDIV;
-    for (int i = 0; i < BATCH_M_PARTS; ++i) {
-      for (int j = 0; j < TN; ++j) {
-        Bs[(threadRow * BATCH_M_PARTS + i) * BN + threadCol * TN + j] = 
-          B[(threadRow * BATCH_M_PARTS + i) * N + threadCol * TN + j];
-      }
+    for (uint loadOffset = 0; loadOffset < BK; loadOffset += strideB) {
+      Bs[(innerRowB + loadOffset) * BN + innerColB] =
+          B[(innerRowB + loadOffset) * N + innerColB];
     }
     __syncthreads();
 
-    // Advance the pointers to the next batch
-    A += BK;
-    B += BK * N;
+    // advance blocktile
+    A += BK;     // move BK columns to right
+    B += BK * N; // move BK rows down
 
-    // Compute the cached values
-    for (int dotIdx = 0; dotIdx < BK; ++dotIdx) {
-      for (int i = 0; i < TM; ++i) {
-        float tmpA = As[(threadRow * TM + i) * BK + dotIdx];
-        for (int j = 0; j < TN; ++j) {
-          float tmpB = Bs[threadCol * TN + j + dotIdx * BN];
-          cachedValues[i * TN + j] += tmpA * tmpB;
+    // calculate per-thread results
+    for (uint dotIdx = 0; dotIdx < BK; ++dotIdx) {
+      // block into registers
+      for (uint i = 0; i < TM; ++i) {
+        regM[i] = As[(threadRow * TM + i) * BK + dotIdx];
+      }
+      for (uint i = 0; i < TN; ++i) {
+        regN[i] = Bs[dotIdx * BN + threadCol * TN + i];
+      }
+      for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
+        for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
+          threadResults[resIdxM * TN + resIdxN] +=
+              regM[resIdxM] * regN[resIdxN];
         }
       }
     }
     __syncthreads();
   }
 
-  // Now copy the actual results to the output
-  for (int i = 0; i < TM; ++i) {
-    for (int j = 0; j < TN; ++j) {
-      C[(threadRow * TM + i) * N + threadCol * TN + j] = cachedValues[i * TN + j];
+  // write out the results
+  for (uint resIdxM = 0; resIdxM < TM; ++resIdxM) {
+    for (uint resIdxN = 0; resIdxN < TN; ++resIdxN) {
+      C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] =
+        threadResults[resIdxM * TN + resIdxN];
     }
   }
 }
