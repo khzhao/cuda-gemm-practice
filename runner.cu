@@ -4,6 +4,7 @@
 #include "4-1D-blocktiling.cuh"
 #include "5-2D-blocktiling.cuh"
 #include "6-vectorize.cuh"
+#include "7-memory-bank-conflicts.cuh"
 
 #include <iostream>
 
@@ -86,12 +87,36 @@ void run_kernel(int kernel_id) {
     case 6: {
       const int BM = 128;
       const int BN = 128;
-      const int BK = 32;
+      const int BK = 8;
       const int TM = 8;
       const int TN = 8;
       dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, BN), CEIL_DIV(PROBLEM_SIZE, BM));
       dim3 blockDim((BM * BN) / (TM * TN));
       gemm_vectorize<BM, BK, BN, TM, TN>
+        <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
+    case 7: {
+      const int BM = 128;
+      const int BN = 128;
+      const int BK = 8;
+      const int TM = 8;
+      const int TN = 8;
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, BN), CEIL_DIV(PROBLEM_SIZE, BM));
+      dim3 blockDim((BM * BN) / (TM * TN));
+      gemm_memory_bank_conflicts_swizzled<BM, BK, BN, TM, TN>
+        <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
+    case 8: {
+      const int BM = 128;
+      const int BN = 128;
+      const int BK = 8;
+      const int TM = 8;
+      const int TN = 8;
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, BN), CEIL_DIV(PROBLEM_SIZE, BM));
+      dim3 blockDim((BM * BN) / (TM * TN));
+      gemm_memory_bank_conflicts_extra_col<BM, BK, BN, TM, TN>
         <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
       break;
     }
@@ -136,4 +161,6 @@ int main() {
   run_kernel(4);
   run_kernel(5);
   run_kernel(6);
+  run_kernel(7);
+  run_kernel(8);
 } 
