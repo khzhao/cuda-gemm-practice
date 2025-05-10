@@ -6,6 +6,8 @@
 #include "6-vectorize.cuh"
 #include "7-memory-bank-conflicts.cuh"
 
+#include <cublas_v2.h>
+
 #include <iostream>
 
 #define CEIL_DIV(M, N) ((M + N - 1) / N)
@@ -44,6 +46,15 @@ void run_kernel(int kernel_id) {
   cudaEventRecord(start_event, 0);
 
   switch (kernel_id) {
+    case 0: {
+      cublasHandle_t handle;
+      cublasCreate(&handle);
+      const float alpha = 1.f;
+      const float beta = 0.f;
+      cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, &alpha, d_A, PROBLEM_SIZE, d_B, PROBLEM_SIZE, &beta, d_C, PROBLEM_SIZE);
+      cublasDestroy(handle);
+      break;
+    }
     case 1: {
       dim3 blockDim(32, 32);
       dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, 32), CEIL_DIV(PROBLEM_SIZE, 32));
@@ -96,6 +107,18 @@ void run_kernel(int kernel_id) {
         <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
       break;
     }
+    case 7: {
+      const int BM = 128;
+      const int BN = 128;
+      const int BK = 32;
+      const int TM = 8;
+      const int TN = 8;
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, BN), CEIL_DIV(PROBLEM_SIZE, BM));
+      dim3 blockDim((BM * BN) / (TM * TN));
+      gemm_memory_bank_conflicts<BM, BK, BN, TM, TN>
+        <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
     default:
       throw std::runtime_error("Unexpected kernel_id");
   }
@@ -131,10 +154,12 @@ void run_kernel(int kernel_id) {
 }
 
 int main() {
+  run_kernel(0);
   run_kernel(1);
   run_kernel(2);
   run_kernel(3);
   run_kernel(4);
   run_kernel(5);
   run_kernel(6);
+  run_kernel(7);
 } 
