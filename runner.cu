@@ -5,6 +5,7 @@
 #include "5-2D-blocktiling.cuh"
 #include "6-vectorize.cuh"
 #include "7-memory-bank-conflicts.cuh"
+#include "8-warptiling.cuh"
 
 #include <cublas_v2.h>
 
@@ -119,6 +120,18 @@ void run_kernel(int kernel_id) {
         <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
       break;
     }
+    case 8: {
+      const int BM = 128;
+      const int BN = 128;
+      const int BK = 32;
+      const int TM = 8;
+      const int TN = 8;
+      dim3 gridDim(CEIL_DIV(PROBLEM_SIZE, BN), CEIL_DIV(PROBLEM_SIZE, BM));
+      dim3 blockDim((BM * BN) / (TM * TN));
+      gemm_warptiling<BM, BK, BN, TM, TN>
+        <<<gridDim, blockDim>>>(PROBLEM_SIZE, PROBLEM_SIZE, PROBLEM_SIZE, d_A, d_B, d_C);
+      break;
+    }
     default:
       throw std::runtime_error("Unexpected kernel_id");
   }
@@ -162,4 +175,5 @@ int main() {
   run_kernel(5);
   run_kernel(6);
   run_kernel(7);
+  run_kernel(8);
 } 
