@@ -21,9 +21,6 @@ __global__ void gemm_1D_blocktiling(int M, int K, int N, float* A, float* B, flo
 
   // This determines which column of C to compute which is given by
   // (threadRow, threadCol)
-  // The total number of threads is one to one with retrieving and 
-  // populating the shared memory caches + also assigning to a 
-  // computation task which is the (TM x 1) vector
   assert(BM * BK == blockDim.x);
   assert(BK * BN == blockDim.x);
   const auto threadCol = threadIdx.x % BN;
@@ -47,9 +44,9 @@ __global__ void gemm_1D_blocktiling(int M, int K, int N, float* A, float* B, flo
     A += BK; 
     B += BK * N;
 
-    for (int resIdx = 0; resIdx < TM; ++resIdx) {
-      for (int dotIdx = 0; dotIdx < BK; ++dotIdx) {
-        float tmpB = Bs[dotIdx * BN + threadCol];
+    for (int dotIdx = 0; dotIdx < BK; ++dotIdx) {
+      float tmpB = Bs[dotIdx * BN + threadCol];
+      for (int resIdx = 0; resIdx < TM; ++resIdx) {
         float tmpA = As[(threadRow * TM + resIdx) * BK + dotIdx];
         threadValues[resIdx] += tmpA * tmpB;
       }
